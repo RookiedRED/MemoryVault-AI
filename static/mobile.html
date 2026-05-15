@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>MemoryVault — Upload</title>
+  <style>
+    /* ── Reset & base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      min-height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      background: #f2f2f7;
+      color: #1c1c1e;
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 0 16px 40px;
+    }
+
+    /* ── Header ── */
+    .header {
+      padding: 20px 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid rgba(60,60,67,0.12);
+      margin-bottom: 24px;
+    }
+    .header-logo {
+      font-size: 20px;
+    }
+    .header-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1c1c1e;
+      letter-spacing: -0.2px;
+    }
+    .header-sub {
+      font-size: 12px;
+      color: #8e8e93;
+      margin-top: 1px;
+    }
+
+    /* ── Token status ── */
+    .token-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .token-status.valid {
+      background: rgba(52,199,89,0.1);
+      color: #248a3d;
+      border: 1px solid rgba(52,199,89,0.2);
+    }
+    .token-status.invalid {
+      background: rgba(255,59,48,0.1);
+      color: #ff3b30;
+      border: 1px solid rgba(255,59,48,0.2);
+    }
+    .token-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+    }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      background: #fff;
+      border: 2px dashed rgba(60,60,67,0.18);
+      border-radius: 16px;
+      padding: 36px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background 0.2s ease;
+      margin-bottom: 20px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .upload-zone.drag-over {
+      border-color: #007aff;
+      background: rgba(0,122,255,0.04);
+    }
+    .upload-zone.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .upload-icon {
+      font-size: 44px;
+      margin-bottom: 12px;
+      display: block;
+    }
+    .upload-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: #1c1c1e;
+      margin-bottom: 6px;
+    }
+    .upload-sub {
+      font-size: 14px;
+      color: #8e8e93;
+    }
+    .upload-btn-label {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 10px 24px;
+      background: #007aff;
+      color: #fff;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ── File list ── */
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .file-item {
+      background: #fff;
+      border-radius: 12px;
+      padding: 14px 14px 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+
+    .file-item-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .file-item-icon {
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+
+    .file-item-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .file-item-name {
+      font-size: 14px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #1c1c1e;
+    }
+
+    .file-item-size {
+      font-size: 12px;
+      color: #8e8e93;
+      margin-top: 1px;
+    }
+
+    .file-item-status {
+      font-size: 13px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .file-item-status.uploading { color: #8e8e93; }
+    .file-item-status.success   { color: #34c759; }
+    .file-item-status.error     { color: #ff3b30; }
+    .file-item-status.duplicate { color: #ff9500; }
+    .file-item-status.notext    { color: #ff9500; }
+
+    /* Progress bar */
+    .progress-track {
+      height: 3px;
+      background: rgba(60,60,67,0.1);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #007aff;
+      border-radius: 99px;
+      transition: width 0.3s ease;
+    }
+
+    /* Status message */
+    .file-item-msg {
+      font-size: 12px;
+      color: #8e8e93;
+      margin-top: 4px;
+      padding: 0 1px;
+    }
+
+    /* ── Done button ── */
+    .done-section {
+      margin-top: 24px;
+      text-align: center;
+      display: none;
+    }
+
+    .done-section.visible { display: block; }
+
+    .done-btn {
+      width: 100%;
+      padding: 14px;
+      background: #007aff;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 17px;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .done-btn:active { opacity: 0.85; }
+
+    /* ── Error screen ── */
+    .error-screen {
+      background: #fff;
+      border-radius: 16px;
+      padding: 40px 24px;
+      text-align: center;
+      margin-top: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .error-screen-icon { font-size: 48px; margin-bottom: 12px; }
+    .error-screen-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #ff3b30;
+      margin-bottom: 8px;
+    }
+    .error-screen-msg {
+      font-size: 14px;
+      color: #8e8e93;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <div class="header">
+      <span class="header-logo">🔐</span>
+      <div>
+        <div class="header-title">MemoryVault</div>
+        <div class="header-sub">Upload Files</div>
+      </div>
+    </div>
+
+    <div id="main-content">
+      <!-- Rendered by JS -->
+    </div>
+
+  </div>
+
+  <input type="file" id="file-input" multiple style="display:none" aria-hidden="true">
+
+  <script>
+    'use strict';
+
+    // ── State ──
+    const token = new URLSearchParams(window.location.search).get('token');
+    const files = []; // [{file, status, progress, message}]
+    let allDone = false;
+
+    // ── Utilities ──
+    function escHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function fmtSize(bytes) {
+      if (!bytes) return '0 B';
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    function fileIcon(name) {
+      const ext = name.split('.').pop()?.toLowerCase() ?? '';
+      if (ext === 'pdf') return '📄';
+      if (['jpg','jpeg','png','gif','webp','svg'].includes(ext)) return '🖼️';
+      if (['js','ts','py','rb','go','rs','java','c','cpp','cs','swift','kt'].includes(ext)) return '💻';
+      if (['md','txt','rst','org'].includes(ext)) return '📝';
+      return '📁';
+    }
+
+    // ── Render ──
+    function render() {
+      const main = document.getElementById('main-content');
+      if (!main) return;
+
+      if (!token) {
+        main.innerHTML = `<div class="error-screen">
+          <div class="error-screen-icon">⚠️</div>
+          <div class="error-screen-title">Invalid link</div>
+          <div class="error-screen-msg">Ask for a new QR code from the MemoryVault desktop app.</div>
+        </div>`;
+        return;
+      }
+
+      const statusClass = 'valid';
+      const statusText  = 'Connected to vault';
+
+      const fileListHtml = files.map((f, i) => {
+        const icon = fileIcon(f.file.name);
+        let statusLabel = '';
+        let statusClass = '';
+        let progressHtml = '';
+        let msgHtml = '';
+
+        if (f.status === 'uploading') {
+          statusLabel = 'Uploading…';
+          statusClass = 'uploading';
+          progressHtml = `<div class="progress-track"><div class="progress-fill" style="width:${f.progress}%"></div></div>`;
+        } else if (f.status === 'success') {
+          statusLabel = '✓ Uploaded';
+          statusClass = 'success';
+          msgHtml = `<div class="file-item-msg">Privacy scan complete</div>`;
+          progressHtml = `<div class="progress-track"><div class="progress-fill" style="width:100%;background:var(--green,#34c759)"></div></div>`;
+        } else if (f.status === 'duplicate') {
+          statusLabel = '⊙ Duplicate';
+          statusClass = 'duplicate';
+          msgHtml = `<div class="file-item-msg">Already in vault</div>`;
+        } else if (f.status === 'notext') {
+          statusLabel = '⚠ No text';
+          statusClass = 'notext';
+          msgHtml = `<div class="file-item-msg">No extractable text found</div>`;
+        } else if (f.status === 'error') {
+          statusLabel = '✗ Failed';
+          statusClass = 'error';
+          msgHtml = `<div class="file-item-msg">${escHtml(f.message || 'Upload failed')}</div>`;
+        } else {
+          statusLabel = 'Queued';
+          statusClass = 'uploading';
+        }
+
+        return `<div class="file-item" id="file-item-${i}">
+          <div class="file-item-header">
+            <span class="file-item-icon">${icon}</span>
+            <div class="file-item-info">
+              <div class="file-item-name">${escHtml(f.file.name)}</div>
+              <div class="file-item-size">${fmtSize(f.file.size)}</div>
+            </div>
+            <span class="file-item-status ${statusClass}">${statusLabel}</span>
+          </div>
+          ${progressHtml}
+          ${msgHtml}
+        </div>`;
+      }).join('');
+
+      const uploadZoneDisabled = files.some(f => f.status === 'uploading') ? ' disabled' : '';
+
+      main.innerHTML = `
+        <div class="token-status ${statusClass}">
+          <div class="token-dot"></div>
+          <span>${escHtml(statusText)}</span>
+        </div>
+
+        <div class="upload-zone${uploadZoneDisabled}" id="upload-zone" role="button" tabindex="0" aria-label="Upload files">
+          <span class="upload-icon">☁️</span>
+          <div class="upload-title">Upload Files</div>
+          <div class="upload-sub">Tap to pick files or drag and drop</div>
+          <span class="upload-btn-label">Choose Files</span>
+        </div>
+
+        <div class="file-list">${fileListHtml}</div>
+
+        <div class="done-section${files.length > 0 && files.every(f => f.status !== 'uploading') ? ' visible' : ''}" id="done-section">
+          <button class="done-btn" id="done-btn">Done</button>
+        </div>
+      `;
+
+      // Re-wire events after render
+      const zone = document.getElementById('upload-zone');
+      if (zone && !zone.classList.contains('disabled')) {
+        zone.addEventListener('click', () => document.getElementById('file-input').click());
+        zone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') document.getElementById('file-input').click(); });
+        zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+        zone.addEventListener('drop', e => {
+          e.preventDefault();
+          zone.classList.remove('drag-over');
+          handleFiles(e.dataTransfer?.files);
+        });
+      }
+
+      document.getElementById('done-btn')?.addEventListener('click', () => {
+        if (window.history.length > 1) {
+          window.history.back();
+        } else {
+          document.getElementById('main-content').innerHTML = `<div class="error-screen">
+            <div class="error-screen-icon">✅</div>
+            <div class="error-screen-title" style="color:#34c759">All done!</div>
+            <div class="error-screen-msg">Your files have been added to the vault.<br>You can close this page.</div>
+          </div>`;
+        }
+      });
+    }
+
+    // ── Handle files ──
+    function handleFiles(fileList) {
+      if (!fileList || fileList.length === 0) return;
+      if (!token) return;
+
+      Array.from(fileList).forEach(file => {
+        files.push({ file, status: 'uploading', progress: 0, message: '' });
+      });
+
+      render();
+
+      // Upload each file
+      const startIdx = files.length - fileList.length;
+      Array.from(fileList).forEach((file, i) => {
+        uploadFile(file, startIdx + i);
+      });
+    }
+
+    async function uploadFile(file, idx) {
+      const entry = files[idx];
+      if (!entry) return;
+
+      // Simulate progress since fetch doesn't provide upload progress
+      let progress = 0;
+      const progressInterval = setInterval(() => {
+        if (progress < 90) {
+          progress += Math.random() * 15;
+          entry.progress = Math.min(progress, 90);
+          updateFileItem(idx);
+        }
+      }, 200);
+
+      const form = new FormData();
+      form.append('file', file);
+
+      try {
+        const resp = await fetch(`/api/upload?token=${encodeURIComponent(token)}`, {
+          method: 'POST',
+          body: form,
+        });
+
+        clearInterval(progressInterval);
+        entry.progress = 100;
+
+        if (resp.ok) {
+          entry.status = 'success';
+          entry.message = 'Uploaded';
+        } else {
+          const data = await resp.json().catch(() => ({}));
+          if (resp.status === 403) {
+            entry.status = 'error';
+            entry.message = 'Invalid or expired token';
+          } else if (resp.status === 409) {
+            entry.status = 'duplicate';
+            entry.message = 'Already in vault';
+          } else if (resp.status === 422) {
+            entry.status = 'notext';
+            entry.message = data.detail || 'No extractable text';
+          } else {
+            entry.status = 'error';
+            entry.message = data.detail || `HTTP ${resp.status}`;
+          }
+        }
+      } catch (e) {
+        clearInterval(progressInterval);
+        entry.status = 'error';
+        entry.message = 'Network error';
+      }
+
+      updateFileItem(idx);
+
+      // Show done button when all finished
+      if (files.every(f => f.status !== 'uploading')) {
+        const doneSection = document.getElementById('done-section');
+        if (doneSection) doneSection.classList.add('visible');
+      }
+    }
+
+    function updateFileItem(idx) {
+      // Instead of full re-render, update just the item
+      const entry = files[idx];
+      if (!entry) return;
+
+      const el = document.getElementById(`file-item-${idx}`);
+      if (!el) {
+        render(); // fallback
+        return;
+      }
+
+      let statusLabel = '';
+      let statusClass = '';
+      let progressHtml = '';
+      let msgHtml = '';
+
+      if (entry.status === 'uploading') {
+        statusLabel = 'Uploading…';
+        statusClass = 'uploading';
+        progressHtml = `<div class="progress-track"><div class="progress-fill" style="width:${entry.progress}%"></div></div>`;
+      } else if (entry.status === 'success') {
+        statusLabel = '✓ Uploaded';
+        statusClass = 'success';
+        msgHtml = `<div class="file-item-msg">Privacy scan complete</div>`;
+        progressHtml = `<div class="progress-track"><div class="progress-fill" style="width:100%;background:#34c759"></div></div>`;
+      } else if (entry.status === 'duplicate') {
+        statusLabel = '⊙ Duplicate';
+        statusClass = 'duplicate';
+        msgHtml = `<div class="file-item-msg">Already in vault</div>`;
+      } else if (entry.status === 'notext') {
+        statusLabel = '⚠ No text';
+        statusClass = 'notext';
+        msgHtml = `<div class="file-item-msg">No extractable text found</div>`;
+      } else if (entry.status === 'error') {
+        statusLabel = '✗ Failed';
+        statusClass = 'error';
+        msgHtml = `<div class="file-item-msg">${escHtml(entry.message || 'Upload failed')}</div>`;
+      }
+
+      const statusEl = el.querySelector('.file-item-status');
+      if (statusEl) {
+        statusEl.className = `file-item-status ${statusClass}`;
+        statusEl.textContent = statusLabel;
+      }
+
+      // Replace progress + msg
+      const oldProgress = el.querySelector('.progress-track');
+      const oldMsg = el.querySelector('.file-item-msg');
+      if (oldProgress) oldProgress.remove();
+      if (oldMsg) oldMsg.remove();
+
+      if (progressHtml) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = progressHtml;
+        el.appendChild(tmp.firstChild);
+      }
+      if (msgHtml) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = msgHtml;
+        el.appendChild(tmp.firstChild);
+      }
+    }
+
+    // ── File input ──
+    document.getElementById('file-input').addEventListener('change', e => {
+      if (e.target.files?.length) {
+        handleFiles(e.target.files);
+        e.target.value = '';
+      }
+    });
+
+    // ── Initial render ──
+    render();
+  </script>
+</body>
+</html>

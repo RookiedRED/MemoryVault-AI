@@ -1,0 +1,137 @@
+import re
+from dataclasses import dataclass, field
+
+from app.guardian.model import GuardianModel
+from app.privacy.markers import has_private_markers
+from app.privacy.taxonomy import PrivacyLevel
+
+
+class BlockedError(Exception):
+    """Raised when content contains patterns that can never be sent online."""
+
+
+@dataclass
+class SanitizedPayload:
+    mode: str = "guarded_online"
+    task: str = ""
+    privacy_level: str = ""
+    user_question: str = ""
+    sanitized_context: str = ""
+    forbidden_actions: list = field(default_factory=lambda: [
+        "do not infer real identity",
+        "do not request raw private data",
+        "do not reconstruct redacted fields",
+        "do not output hidden identifiers",
+    ])
+    output_format: str = "concise answer"
+
+
+# RedactionMap: placeholder token → original value
+# Lives in memory for the duration of the pipeline; discarded after step 9 (D5).
+RedactionMap = dict[str, str]
+
+
+def sanitize(
+    query: str,
+    context: str,
+    privacy_level: PrivacyLevel,
+    model: GuardianModel,
+) -> tuple[SanitizedPayload, RedactionMap]:
+    """
+    Sanitize query + context for online transmission.
+
+    Returns (SanitizedPayload, redaction_map) where redaction_map maps
+    placeholder → original_value (used by ResponseChecker in step 8).
+
+    Raises BlockedError if:
+      - privacy_level is SECRET (never online)
+      - raw blacklisted patterns are detected in the context
+
+    The final assert is a hard gate: if the sanitizer missed something,
+    it surfaces here as an AssertionError rather than a silent data leak.
+    """
+    if privacy_level == PrivacyLevel.SECRET:
+        raise BlockedError("SECRET-level content cannot be sanitized for online use.")
+
+    if has_private_markers(context):
+        raise BlockedError(
+            "Context contains blacklisted patterns (passwords, keys, credentials). "
+            "Cannot sanitize for online use."
+        )
+
+    sanitized_context = context
+    redaction_map: RedactionMap = {}
+
+    if privacy_level == PrivacyLevel.PRIVATE:
+        sanitized_context = _guardian_anonymize(query, context, model)
+
+    elif privacy_level == PrivacyLevel.LOW_SENSITIVE:
+        sanitized_context, redaction_map = _redact_pii(context)
+
+    elif privacy_level == PrivacyLevel.HIGHLY_PRIVATE:
+        # Should not reach here (pipeline routes HIGHLY_PRIVATE to approval-required),
+        # but guard defensively.
+        sanitized_context = _guardian_anonymize(query, context, model)
+
+    # Hard gate: assert the sanitizer did its job.
+    # This fires as an AssertionError (caught by pipeline → local-only fallback).
+    assert not has_private_markers(sanitized_context), (
+        f"PayloadSanitizer: private markers remain after sanitization "
+        f"(privacy_level={privacy_level}). This is a sanitizer bug."
+    )
+
+    payload = SanitizedPayload(
+        privacy_level=privacy_level.value,
+        user_question=query,
+        sanitized_context=sanitized_context,
+    )
+    return payload, redaction_map
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+_PII_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r'\b[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}\b'), 'EMAIL'),
+    (re.compile(r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b'), 'PHONE'),
+    (re.compile(r'\b\d{1,5}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:St|Ave|Rd|Blvd|Dr|Ln|Way|Court|Ct)\b'), 'ADDRESS'),
+]
+
+
+def _redact_pii(text: str) -> tuple[str, RedactionMap]:
+    """
+    Regex-based PII redaction for LOW_SENSITIVE content.
+    Returns (sanitized_text, redaction_map) where redaction_map is placeholder → original.
+    """
+    redaction_map: RedactionMap = {}
+    counters: dict[str, int] = {}
+    result = text
+
+    for pattern, label in _PII_RULES:
+        def _replace(m: re.Match, _label: str = label) -> str:
+            original = m.group(0)
+            counters[_label] = counters.get(_label, 0) + 1
+            placeholder = f"[{_label}_{counters[_label]}]"
+            redaction_map[placeholder] = original
+            return placeholder
+
+        result = pattern.sub(_replace, result)
+
+    return result, redaction_map
+
+
+def _guardian_anonymize(query: str, context: str, model: GuardianModel) -> str:
+    """
+    Ask the Guardian to produce an anonymized summary of the context.
+    Used for PRIVATE and HIGHLY_PRIVATE content (after approval).
+    """
+    prompt = (
+        "Anonymize the following text for external use. "
+        "Remove all names, contact info, addresses, and any identifying details. "
+        "Replace specifics with generic descriptions. "
+        f"Keep only information relevant to answering: {query}\n\n"
+        f"Text to anonymize:\n{context[:1500]}\n\n"
+        "Anonymized text (no names, no contact info, no identifiers):"
+    )
+    return model.generate(prompt)

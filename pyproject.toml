@@ -1,0 +1,12 @@
+[project]
+name = "memoryvault-ai"
+version = "0.1.0"
+description = "Privacy-preserving personal AI memory vault"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100

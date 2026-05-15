@@ -1,0 +1,77 @@
+# Dependencies
+node_modules/
+vendor/
+.venv/
+venv/
+env/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+target/
+DerivedData/
+.swiftpm/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.mobileprovision
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+logs/
+
+# Local AI / memory database data
+local_data/
+data/
+memory_index/
+vector_db/
+embeddings/
+chroma/
+lancedb/
+qdrant_storage/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.duckdb
+
+# GStack / Claude local artifacts
+.gstack/
+.claude/
+*.transcript.jsonl
+
+# Generated docs / scratch files
+scratch/
+tmp/
+temp/
+.cache/
+
+# Markdown docs (local only)
+*.md
+

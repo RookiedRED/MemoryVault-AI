@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MemoryVault AI</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- Drag overlay -->
+  <div class="drag-overlay" id="drag-overlay" aria-hidden="true">Drop files to add to vault</div>
+
+  <!-- App shell -->
+  <div class="app-shell" id="app">
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar" role="complementary" aria-label="Vault files">
+      <div class="sidebar-header">
+        <span class="app-name">MemoryVault</span>
+        <div class="server-status" id="server-status" aria-label="Server status">
+          <span class="dot" id="dot-local"    title="Local server"></span>
+          <span class="dot" id="dot-guardian" title="Guardian model"></span>
+          <span class="dot" id="dot-online"   title="Online model"></span>
+        </div>
+      </div>
+      <div class="sidebar-search">
+        <input type="search" id="vault-search" placeholder="Search vault…" aria-label="Search vault files">
+      </div>
+      <nav class="category-nav" id="category-nav" aria-label="File categories">
+        <!-- Rendered by JS -->
+      </nav>
+      <div class="file-list" id="file-list" role="list" aria-label="Vault files">
+        <!-- Rendered by JS -->
+      </div>
+      <button class="upload-btn" id="sidebar-upload-btn" aria-label="Add files to vault">+ Add files</button>
+    </aside>
+
+    <!-- Main workspace -->
+    <main class="workspace" id="workspace">
+      <div class="workspace-header">
+        <div class="mode-selector" id="mode-selector" role="group" aria-label="Query mode">
+          <!-- Rendered by JS -->
+        </div>
+        <div class="header-actions">
+          <button id="phone-btn" class="icon-btn" title="Connect phone" aria-label="Connect phone via QR code">📱</button>
+          <button id="panel-toggle" class="icon-btn" title="Toggle details panel" aria-label="Toggle details panel">ⓘ</button>
+        </div>
+      </div>
+
+      <div class="chat-thread" id="chat-thread" role="log" aria-live="polite" aria-label="Conversation">
+        <!-- Rendered by JS -->
+      </div>
+
+      <div class="input-area">
+        <div class="source-chips" id="source-chips" aria-label="Selected sources"></div>
+        <div class="input-card">
+          <div class="input-row">
+            <textarea
+              id="query-input"
+              rows="1"
+              placeholder="Ask about your private knowledge…"
+              aria-label="Query input"
+              autocomplete="off"
+              spellcheck="true"
+            ></textarea>
+            <button id="attach-btn" class="icon-btn" title="Attach file" aria-label="Attach file">📎</button>
+            <button id="ask-btn" class="ask-btn" aria-label="Submit query">↑</button>
+          </div>
+        </div>
+        <div class="mode-hint" id="mode-hint" aria-live="polite"></div>
+      </div>
+    </main>
+
+    <!-- Context panel -->
+    <aside class="context-panel" id="context-panel" aria-label="Query details">
+      <div class="panel-header">
+        <span>Details</span>
+        <button id="panel-close" class="icon-btn" aria-label="Close details panel">✕</button>
+      </div>
+      <div id="panel-content"></div>
+    </aside>
+
+  </div><!-- /app-shell -->
+
+  <!-- Hidden file input -->
+  <input type="file" id="file-input" multiple style="display:none" aria-hidden="true">
+
+  <!-- Privacy approval modal -->
+  <div id="approval-modal" class="modal-backdrop" style="display:none" role="dialog" aria-modal="true" aria-labelledby="approval-title">
+    <div class="modal-card">
+      <h2 id="approval-title">Review what will be sent online</h2>
+      <p class="modal-subtitle">This query was classified as highly private. Review the sanitized context before approving.</p>
+      <div id="approval-content"></div>
+      <div class="modal-actions">
+        <button id="approval-cancel"  class="btn-ghost">Cancel</button>
+        <button id="approval-local"   class="btn-secondary">Use local only</button>
+        <button id="approval-confirm" class="btn-primary">Approve &amp; continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phone pairing modal -->
+  <div id="pairing-modal" class="modal-backdrop" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pairing-title">
+    <div class="modal-card pairing-card">
+      <h2 id="pairing-title">Connect your phone</h2>
+      <p class="modal-subtitle">Scan the QR code or open the URL on your phone to upload files directly to this vault.</p>
+      <div id="qr-container" aria-label="QR code"></div>
+      <div id="pairing-url"   class="pairing-url"></div>
+      <div id="pairing-token" class="pairing-token" aria-label="Pairing token"></div>
+      <div id="pairing-timer" class="pairing-timer" aria-live="polite"></div>
+      <button id="pairing-close" class="btn-secondary" style="margin-top:16px">Close</button>
+    </div>
+  </div>
+
+  <!-- Mobile bottom nav -->
+  <nav class="bottom-nav" id="bottom-nav" aria-label="Mobile navigation">
+    <button class="bottom-tab active" data-view="chat"    aria-pressed="true">Ask</button>
+    <button class="bottom-tab"        data-view="vault"   aria-pressed="false">Vault</button>
+    <button class="bottom-tab"        data-view="history" aria-pressed="false">History</button>
+  </nav>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
