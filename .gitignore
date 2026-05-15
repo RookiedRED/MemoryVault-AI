@@ -72,6 +72,7 @@ tmp/
 temp/
 .cache/
 
-# Markdown docs (local only)
+# Markdown docs (local only, except README)
 *.md
+!README.md
 
