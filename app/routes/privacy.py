@@ -12,11 +12,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config import OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT_SECONDS
-from app.guardian.classifier import classify
+from app.guardian.classifier import analyze
 from app.guardian.model import GuardianModel
 from app.privacy.markers import has_private_markers
 from app.privacy.policy import policy_manager
-from app.privacy.taxonomy import default_route
+from app.privacy.taxonomy import LocalSufficiency, default_route
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
 
@@ -46,6 +46,7 @@ class PolicyUpdate(BaseModel):
 class RoutePreview(BaseModel):
     query: str
     privacy_level: str
+    local_sufficiency: str
     confidence: float
     routing: str
     reason: str
@@ -116,14 +117,15 @@ def preview_route(query: str) -> RoutePreview:
         model=OLLAMA_MODEL,
         timeout=OLLAMA_TIMEOUT_SECONDS,
     )
-    privacy_level, confidence = classify(query, "", guardian)
-    routing = default_route(privacy_level)
+    analysis = analyze(query, "", guardian)
+    routing = default_route(analysis.privacy_level, analysis.local_sufficiency)
     return RoutePreview(
         query=query,
-        privacy_level=privacy_level.value,
-        confidence=round(confidence, 3),
+        privacy_level=analysis.privacy_level.value,
+        local_sufficiency=analysis.local_sufficiency.value,
+        confidence=round(analysis.confidence, 3),
         routing=routing.value,
-        reason=f"Classified as {privacy_level.value} with confidence {confidence:.2f}.",
+        reason=analysis.reason,
     )
 
 

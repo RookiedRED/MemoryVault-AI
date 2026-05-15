@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import dataclass, field
 
@@ -13,17 +14,28 @@ class BlockedError(Exception):
 @dataclass
 class SanitizedPayload:
     mode: str = "guarded_online"
+    route: str = ""
     task: str = ""
     privacy_level: str = ""
     user_question: str = ""
-    sanitized_context: str = ""
+    sanitized_context: str = ""        # empty for hybrid route
+    local_context_summary: str = ""    # brief topic summary, no raw data
+    allowed_reasoning: list = field(default_factory=lambda: [
+        "general knowledge",
+        "planning",
+        "writing improvement",
+        "technical reasoning",
+        "structure generation",
+    ])
     forbidden_actions: list = field(default_factory=lambda: [
-        "do not infer real identity",
+        "do not infer the user's real identity",
         "do not request raw private data",
         "do not reconstruct redacted fields",
         "do not output hidden identifiers",
+        "do not assume private facts not provided",
+        "do not claim access to local files",
     ])
-    output_format: str = "concise answer"
+    output_format: str = "structured answer for the local guardian to merge"
 
 
 # RedactionMap: placeholder token → original value
@@ -81,11 +93,65 @@ def sanitize(
     )
 
     payload = SanitizedPayload(
+        route="guarded-online",
         privacy_level=privacy_level.value,
         user_question=query,
         sanitized_context=sanitized_context,
+        local_context_summary="",
     )
     return payload, redaction_map
+
+
+def build_hybrid_payload(
+    query: str,
+    local_context: str,
+    privacy_level: PrivacyLevel,
+    model: GuardianModel,
+) -> tuple[SanitizedPayload, RedactionMap]:
+    """
+    Build a privacy-safe payload for the HYBRID_KNOWLEDGE_ONLY route.
+
+    Calls Guardian to:
+    1. Abstract the question (remove private references)
+    2. Generate a one-line topic summary of local context (no raw data)
+
+    Returns (SanitizedPayload, RedactionMap={}) — no raw private context is included.
+    """
+    prompt = (
+        "You are preparing a privacy-safe request for an online AI model.\n"
+        "The user has private local context that must NOT be sent online.\n\n"
+        "Given the original question and local context below, produce two things:\n"
+        "1. An abstracted version of the question that removes all private details but preserves the general intent.\n"
+        "2. A one-sentence topic summary of what local information is available (no actual content, just categories).\n\n"
+        'Return ONLY valid JSON:\n{"abstracted_question": "...", "local_context_summary": "..."}\n\n'
+        f"Original question: {query}\n"
+        f"Local context (KEEP PRIVATE — summarize only): {local_context[:800]}\n\n"
+        "JSON:"
+    )
+
+    raw = model.generate(prompt, role="abstractor")
+
+    abstracted_question = query
+    local_context_summary = "local personal context available"
+
+    match = re.search(r'\{[^{}]+\}', raw, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            abstracted_question = str(data.get("abstracted_question", query))
+            local_context_summary = str(data.get("local_context_summary", local_context_summary))
+        except (json.JSONDecodeError, KeyError, ValueError):
+            pass
+
+    payload = SanitizedPayload(
+        mode="hybrid_knowledge_only",
+        route="hybrid-knowledge-only",
+        privacy_level=privacy_level.value,
+        user_question=abstracted_question,
+        sanitized_context="",  # no raw context sent online
+        local_context_summary=local_context_summary,
+    )
+    return payload, {}
 
 
 # ---------------------------------------------------------------------------

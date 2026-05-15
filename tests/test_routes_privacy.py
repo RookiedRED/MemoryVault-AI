@@ -5,7 +5,26 @@ Tests for /privacy/policy, /privacy/route, /privacy/scan.
 import pytest
 from unittest.mock import patch
 
-from app.privacy.taxonomy import PrivacyLevel, RoutingDecision
+from app.guardian.classifier import AnalysisResult
+from app.privacy.taxonomy import LocalSufficiency, PrivacyLevel, RoutingDecision
+
+
+def _make_analysis(
+    level=PrivacyLevel.PUBLIC,
+    sufficiency=LocalSufficiency.LOCAL_MISSING_EXTERNAL_ONLY,
+    confidence=0.9,
+    reason="test",
+) -> AnalysisResult:
+    return AnalysisResult(
+        privacy_level=level,
+        local_sufficiency=sufficiency,
+        recommended_route=RoutingDecision.GUARDED_ONLINE,
+        needs_local_retrieval=False,
+        needs_online_model=True,
+        redaction_required=False,
+        reason=reason,
+        confidence=confidence,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -54,17 +73,24 @@ def test_reset_policy_restores_defaults(client):
 # ---------------------------------------------------------------------------
 
 def test_preview_route_returns_routing(client):
-    with patch("app.routes.privacy.classify", return_value=(PrivacyLevel.PUBLIC, 0.9)):
+    analysis = _make_analysis(level=PrivacyLevel.PUBLIC, confidence=0.9)
+    with patch("app.routes.privacy.analyze", return_value=analysis):
         resp = client.get("/privacy/route", params={"query": "What is Python?"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["privacy_level"] == "PUBLIC"
     assert data["routing"] == "guarded-online"
     assert data["confidence"] == pytest.approx(0.9, abs=0.01)
+    assert "local_sufficiency" in data
 
 
 def test_preview_route_secret_returns_blocked(client):
-    with patch("app.routes.privacy.classify", return_value=(PrivacyLevel.SECRET, 0.99)):
+    analysis = _make_analysis(
+        level=PrivacyLevel.SECRET,
+        sufficiency=LocalSufficiency.LOCAL_PRIVATE_BLOCKED,
+        confidence=0.99,
+    )
+    with patch("app.routes.privacy.analyze", return_value=analysis):
         resp = client.get("/privacy/route", params={"query": "password: hunter2"})
     assert resp.status_code == 200
     assert resp.json()["routing"] == "blocked"

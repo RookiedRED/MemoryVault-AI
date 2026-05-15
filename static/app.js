@@ -97,10 +97,11 @@ function toast(msg, type = 'success') {
 function routingBadge(routing) {
   if (!routing) return '';
   const map = {
-    'local-only':        ['badge-local',    'Local'],
-    'guarded-online':    ['badge-guarded',  'Guarded online'],
-    'approval-required': ['badge-approval', 'Approval required'],
-    'blocked':           ['badge-blocked',  'Blocked'],
+    'local-only':             ['badge-local',    'Local'],
+    'guarded-online':         ['badge-guarded',  'Guarded online'],
+    'hybrid-knowledge-only':  ['badge-hybrid',   'Hybrid'],
+    'approval-required':      ['badge-approval', 'Approval required'],
+    'blocked':                ['badge-blocked',  'Blocked'],
   };
   const [cls, label] = map[routing] ?? ['badge-source', routing];
   return `<span class="badge ${cls}">${escHtml(label)}</span>`;

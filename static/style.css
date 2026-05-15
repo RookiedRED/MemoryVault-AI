@@ -509,6 +509,7 @@ html, body {
 
 .badge-local    { background: rgba(52,199,89,0.12);   color: #248a3d; }
 .badge-guarded  { background: rgba(0,122,255,0.10);   color: var(--blue); }
+.badge-hybrid   { background: rgba(0,199,190,0.12);   color: #0a7c6e; }
 .badge-approval { background: rgba(255,149,0,0.12);   color: #c45000; }
 .badge-blocked  { background: rgba(255,59,48,0.10);   color: var(--red); }
 .badge-source   { background: rgba(120,120,128,0.10); color: var(--text2); }

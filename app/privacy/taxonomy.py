@@ -9,25 +9,32 @@ class PrivacyLevel(str, Enum):
     SECRET = "SECRET"
 
 
+class LocalSufficiency(str, Enum):
+    LOCAL_SUFFICIENT = "LOCAL_SUFFICIENT"
+    LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL = "LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL"
+    LOCAL_MISSING_EXTERNAL_ONLY = "LOCAL_MISSING_EXTERNAL_ONLY"
+    LOCAL_PRIVATE_BLOCKED = "LOCAL_PRIVATE_BLOCKED"
+
+
 class RoutingDecision(str, Enum):
     LOCAL_ONLY = "local-only"
     GUARDED_ONLINE = "guarded-online"
+    HYBRID_KNOWLEDGE_ONLY = "hybrid-knowledge-only"
     APPROVAL_REQUIRED = "approval-required"
     BLOCKED = "blocked"
 
 
-# Default routing table: privacy level → routing decision.
-# LOCAL_ONLY and GUARDED_ONLINE can be overridden by force_route (e.g. /local-ask).
-# APPROVAL_REQUIRED and BLOCKED are policy-enforced and cannot be overridden.
-_ROUTING_TABLE: dict[PrivacyLevel, RoutingDecision] = {
-    PrivacyLevel.PUBLIC: RoutingDecision.GUARDED_ONLINE,
-    PrivacyLevel.LOW_SENSITIVE: RoutingDecision.GUARDED_ONLINE,
-    PrivacyLevel.PRIVATE: RoutingDecision.GUARDED_ONLINE,
-    PrivacyLevel.HIGHLY_PRIVATE: RoutingDecision.APPROVAL_REQUIRED,
-    PrivacyLevel.SECRET: RoutingDecision.BLOCKED,
-}
-
-
-def default_route(level: PrivacyLevel) -> RoutingDecision:
-    """Return the default routing decision for a given privacy level."""
-    return _ROUTING_TABLE[level]
+def default_route(level: PrivacyLevel, sufficiency: LocalSufficiency) -> RoutingDecision:
+    """Return the default routing decision for a given privacy level and local sufficiency."""
+    if level == PrivacyLevel.SECRET:
+        return RoutingDecision.BLOCKED
+    if sufficiency in (LocalSufficiency.LOCAL_SUFFICIENT, LocalSufficiency.LOCAL_PRIVATE_BLOCKED):
+        return RoutingDecision.LOCAL_ONLY
+    if sufficiency == LocalSufficiency.LOCAL_MISSING_EXTERNAL_ONLY:
+        return RoutingDecision.GUARDED_ONLINE
+    # LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL — route by privacy level
+    if level == PrivacyLevel.HIGHLY_PRIVATE:
+        return RoutingDecision.APPROVAL_REQUIRED
+    if level == PrivacyLevel.PRIVATE:
+        return RoutingDecision.HYBRID_KNOWLEDGE_ONLY
+    return RoutingDecision.GUARDED_ONLINE  # PUBLIC or LOW_SENSITIVE

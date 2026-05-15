@@ -100,11 +100,23 @@ def test_pipeline_uses_local_context_in_answer(tmp_db):
     g.generate.return_value = "MemoryVault is a privacy-preserving tool."
     pipeline = Pipeline(guardian=g, db_path=tmp_db)
 
+    from app.guardian.classifier import AnalysisResult
+    from app.privacy.taxonomy import LocalSufficiency, PrivacyLevel, RoutingDecision
+    analysis = AnalysisResult(
+        privacy_level=PrivacyLevel.PUBLIC,
+        local_sufficiency=LocalSufficiency.LOCAL_MISSING_EXTERNAL_ONLY,
+        recommended_route=RoutingDecision.GUARDED_ONLINE,
+        needs_local_retrieval=False,
+        needs_online_model=True,
+        redaction_required=False,
+        reason="test",
+        confidence=0.9,
+    )
     with patch("app.vault.embedder.embed_one", return_value=[0.1] * 768), \
-         patch("app.guardian.pipeline.classify", return_value=(__import__("app.privacy.taxonomy", fromlist=["PrivacyLevel"]).PrivacyLevel.LOCAL_ONLY if False else __import__("app.privacy.taxonomy", fromlist=["PrivacyLevel"]).PrivacyLevel.PUBLIC, 0.9)), \
+         patch("app.guardian.pipeline.analyze", return_value=analysis), \
          patch.object(pipeline, "_get_expert") as mock_expert:
         mock_expert.return_value.call.return_value = "Expert answer."
-        result = pipeline.run("What is MemoryVault?", force_route=__import__("app.privacy.taxonomy", fromlist=["RoutingDecision"]).RoutingDecision.LOCAL_ONLY)
+        result = pipeline.run("What is MemoryVault?", force_route=RoutingDecision.LOCAL_ONLY)
 
     # Guardian.generate was called — means local context was passed through
     g.generate.assert_called()

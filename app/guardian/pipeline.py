@@ -3,8 +3,8 @@ Guardian Pipeline — 10-step orchestrator.
 
 Step 1:  Understand the query.
 Step 2:  Retrieve local context (sqlite-vec search — stub in Sprint 1).
-Step 3:  Classify sensitivity (Guardian LLM → PrivacyLevel).
-Step 4:  Decide route (local-only / guarded-online / approval-required / blocked).
+Step 3:  Analyze sensitivity (Guardian LLM → AnalysisResult).
+Step 4:  Decide route (local-only / guarded-online / hybrid-knowledge-only / approval-required / blocked).
 Step 5:  Create sanitized payload (PayloadSanitizer + in-memory redaction map).
 Step 6:  Preview payload if preview_sensitive_payloads=True.
 Step 7:  Send sanitized payload to Expert Model.
@@ -21,11 +21,11 @@ from typing import Optional
 from app.config import DB_PATH, EXPERT_MAX_CONTEXT_CHARS, RETRIEVAL_DISTANCE_THRESHOLD, RETRIEVAL_TOP_K
 from app.database import connection
 from app.guardian.checker import check
-from app.guardian.classifier import classify
+from app.guardian.classifier import AnalysisResult, analyze
 from app.guardian.model import GuardianModel, GuardianUnavailableError
-from app.guardian.sanitizer import BlockedError, SanitizedPayload, sanitize
+from app.guardian.sanitizer import BlockedError, SanitizedPayload, build_hybrid_payload, sanitize
 from app.privacy.policy import policy_manager
-from app.privacy.taxonomy import PrivacyLevel, RoutingDecision, default_route
+from app.privacy.taxonomy import LocalSufficiency, PrivacyLevel, RoutingDecision, default_route
 
 
 # ---------------------------------------------------------------------------
@@ -37,10 +37,12 @@ class PipelineResult:
     answer: str
     routing: RoutingDecision
     privacy_level: PrivacyLevel
+    local_sufficiency: LocalSufficiency
     sources: list[str]
     query_id: str
     status: str = "ok"          # ok | blocked
     warning: Optional[str] = None
+    routing_detail: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -71,7 +73,7 @@ class Pipeline:
         self,
         query_text: str,
         force_route: Optional[RoutingDecision] = None,
-    ) -> PipelineResult | PendingApproval:
+    ) -> "PipelineResult | PendingApproval":
         """
         Run the full 10-step pipeline.
 
@@ -89,6 +91,7 @@ class Pipeline:
                 answer=answer,
                 routing=RoutingDecision.LOCAL_ONLY,
                 privacy_level=PrivacyLevel.PRIVATE,
+                local_sufficiency=LocalSufficiency.LOCAL_PRIVATE_BLOCKED,
                 sources=["local"],
                 query_id=query_id,
                 warning="Guardian offline — local-only mode",
@@ -99,15 +102,27 @@ class Pipeline:
         # Step 2: retrieve local context (embedding search stub — Sprint 2)
         local_context = self._retrieve_local(query_text)
 
-        # Step 3: classify
+        # Step 3: analyze
         try:
-            privacy_level, confidence = classify(query_text, local_context, self.guardian, query_id=query_id)
+            analysis = analyze(query_text, local_context, self.guardian, query_id=query_id)
         except GuardianUnavailableError:
-            # Guardian went down between availability check and classify — safe fallback
-            privacy_level, confidence = PrivacyLevel.PRIVATE, 0.0
+            # Guardian went down between availability check and analyze — safe fallback
+            analysis = AnalysisResult(
+                privacy_level=PrivacyLevel.PRIVATE,
+                local_sufficiency=LocalSufficiency.LOCAL_PRIVATE_BLOCKED,
+                recommended_route=RoutingDecision.LOCAL_ONLY,
+                needs_local_retrieval=False,
+                needs_online_model=False,
+                redaction_required=False,
+                reason="Guardian unavailable — safe fallback.",
+                confidence=0.0,
+            )
+
+        privacy_level = analysis.privacy_level
+        local_sufficiency = analysis.local_sufficiency
 
         # Step 4: decide route
-        routing = default_route(privacy_level)
+        routing = default_route(privacy_level, local_sufficiency)
         if force_route is not None:
             if force_route == RoutingDecision.LOCAL_ONLY:
                 # /local-ask always wins — even HIGHLY_PRIVATE content can be answered locally
@@ -117,34 +132,79 @@ class Pipeline:
                 routing = force_route
 
         self._log_query(query_id, query_text, routing, now)
-        self._log_classification(query_id, privacy_level, routing, confidence, now)
+        self._log_classification(query_id, privacy_level, routing, analysis.confidence, now)
+
+        sources: list[str] = []
+
+        routing_detail = {
+            "route": routing.value,
+            "needs_local_retrieval": analysis.needs_local_retrieval,
+            "needs_online_model": analysis.needs_online_model,
+            "local_sufficiency": local_sufficiency.value,
+            "privacy_level": privacy_level.value,
+            "reason": analysis.reason,
+            "retrieved_sources": sources,
+            "redaction_required": analysis.redaction_required,
+            "approval_required": routing == RoutingDecision.APPROVAL_REQUIRED,
+        }
 
         if routing == RoutingDecision.BLOCKED:
             return PipelineResult(
                 answer="This query has been blocked — it contains data classified as SECRET.",
                 routing=routing,
                 privacy_level=privacy_level,
+                local_sufficiency=local_sufficiency,
                 sources=[],
                 query_id=query_id,
                 status="blocked",
+                routing_detail=routing_detail,
             )
 
         if routing == RoutingDecision.LOCAL_ONLY:
-            return self._local_path(query_id, query_text, local_context, privacy_level, routing)
+            return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, routing, routing_detail)
 
         if routing == RoutingDecision.APPROVAL_REQUIRED:
             return self._approval_path(query_id, query_text, local_context, privacy_level)
 
-        # GUARDED_ONLINE
-        return self._online_path(query_id, query_text, local_context, privacy_level)
+        if routing == RoutingDecision.HYBRID_KNOWLEDGE_ONLY:
+            return self._hybrid_path(query_id, query_text, local_context, privacy_level, local_sufficiency, routing_detail)
 
-    def resume(self, query_id: str, query_text: str) -> PipelineResult:
+        # GUARDED_ONLINE
+        return self._online_path(query_id, query_text, local_context, privacy_level, local_sufficiency, routing_detail)
+
+    def resume(self, query_id: str, query_text: str) -> "PipelineResult":
         """
         Resume a pending_approval query after the user confirms via POST /ask/:id/approve.
         Re-runs from step 5 (sanitize → Expert call → check → merge → finalize).
         """
         local_context = self._retrieve_local(query_text)
-        return self._online_path(query_id, query_text, local_context, PrivacyLevel.HIGHLY_PRIVATE)
+        default_analysis = AnalysisResult(
+            privacy_level=PrivacyLevel.HIGHLY_PRIVATE,
+            local_sufficiency=LocalSufficiency.LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL,
+            recommended_route=RoutingDecision.GUARDED_ONLINE,
+            needs_local_retrieval=True,
+            needs_online_model=True,
+            redaction_required=True,
+            reason="Resumed from approval flow.",
+            confidence=1.0,
+        )
+        routing_detail: dict = {
+            "route": RoutingDecision.GUARDED_ONLINE.value,
+            "needs_local_retrieval": True,
+            "needs_online_model": True,
+            "local_sufficiency": LocalSufficiency.LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL.value,
+            "privacy_level": PrivacyLevel.HIGHLY_PRIVATE.value,
+            "reason": "Resumed from approval flow.",
+            "retrieved_sources": [],
+            "redaction_required": True,
+            "approval_required": False,
+        }
+        return self._online_path(
+            query_id, query_text, local_context,
+            PrivacyLevel.HIGHLY_PRIVATE,
+            LocalSufficiency.LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL,
+            routing_detail,
+        )
 
     # ------------------------------------------------------------------
     # Routing paths
@@ -156,15 +216,21 @@ class Pipeline:
         query_text: str,
         local_context: str,
         privacy_level: PrivacyLevel,
+        local_sufficiency: LocalSufficiency,
         routing: RoutingDecision,
-    ) -> PipelineResult:
+        routing_detail: dict,
+    ) -> "PipelineResult":
         answer = self._finalize_local(query_text, local_context, query_id=query_id)
+        sources = ["local"]
+        routing_detail["retrieved_sources"] = sources
         return PipelineResult(
             answer=answer,
             routing=routing,
             privacy_level=privacy_level,
-            sources=["local"],
+            local_sufficiency=local_sufficiency,
+            sources=sources,
             query_id=query_id,
+            routing_detail=routing_detail,
         )
 
     def _approval_path(
@@ -193,16 +259,18 @@ class Pipeline:
         query_text: str,
         local_context: str,
         privacy_level: PrivacyLevel,
-    ) -> PipelineResult:
+        local_sufficiency: LocalSufficiency,
+        routing_detail: dict,
+    ) -> "PipelineResult":
         # Step 5: sanitize
         try:
             payload, redaction_map = sanitize(query_text, local_context, privacy_level, self.guardian)
         except (BlockedError, AssertionError):
-            return self._local_path(query_id, query_text, local_context, privacy_level, RoutingDecision.LOCAL_ONLY)
+            return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
 
         # Nothing useful to send — both question and context are empty
         if not payload.user_question.strip() and not payload.sanitized_context.strip():
-            return self._local_path(query_id, query_text, local_context, privacy_level, RoutingDecision.LOCAL_ONLY)
+            return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
 
         # Step 7: call Expert
         expert_response: Optional[str] = None
@@ -219,22 +287,82 @@ class Pipeline:
         self._log_network_call(query_id, privacy_level, payload, status_code, prompt_tokens, completion_tokens)
 
         if expert_response is None:
-            return self._local_path(query_id, query_text, local_context, privacy_level, RoutingDecision.LOCAL_ONLY)
+            return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
 
         # Step 8: check response
         is_clean = check(expert_response, redaction_map)
         if not is_clean:
             self._update_leak(query_id)
-            return self._local_path(query_id, query_text, local_context, privacy_level, RoutingDecision.LOCAL_ONLY)
+            return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
 
         # Steps 9+10: merge and finalize
-        answer = self._finalize_hybrid(query_text, local_context, expert_response, query_id=query_id)
+        answer = self._finalize_hybrid_merge(query_text, local_context, expert_response, query_id=query_id)
+        sources = ["local", "expert"]
+        routing_detail["retrieved_sources"] = sources
         return PipelineResult(
             answer=answer,
             routing=RoutingDecision.GUARDED_ONLINE,
             privacy_level=privacy_level,
-            sources=["local", "expert"],
+            local_sufficiency=local_sufficiency,
+            sources=sources,
             query_id=query_id,
+            routing_detail=routing_detail,
+        )
+
+    def _hybrid_path(
+        self,
+        query_id: str,
+        query_text: str,
+        local_context: str,
+        privacy_level: PrivacyLevel,
+        local_sufficiency: LocalSufficiency,
+        routing_detail: dict,
+    ) -> "PipelineResult":
+        """
+        HYBRID_KNOWLEDGE_ONLY path: abstract the question, call expert without
+        private context, then merge locally.
+        """
+        # Step 1: build abstract payload (no raw private data sent online)
+        try:
+            payload, _ = build_hybrid_payload(query_text, local_context, privacy_level, self.guardian)
+        except Exception:
+            return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
+
+        # Step 2: call Expert
+        expert_response: Optional[str] = None
+        status_code = 500
+        prompt_tokens = 0
+        completion_tokens = 0
+        try:
+            expert = self._get_expert()
+            expert_response, prompt_tokens, completion_tokens = expert.call_with_usage(payload, query_id=query_id)
+            status_code = 200
+        except Exception:
+            pass
+
+        self._log_network_call(query_id, privacy_level, payload, status_code, prompt_tokens, completion_tokens)
+
+        if expert_response is None:
+            return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
+
+        # Step 3: check response (empty redaction map — no private context was sent)
+        is_clean = check(expert_response, {})
+        if not is_clean:
+            self._update_leak(query_id)
+            return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
+
+        # Step 4: finalize by merging expert reasoning with local context
+        answer = self._finalize_hybrid_merge(query_text, local_context, expert_response, query_id=query_id)
+        sources = ["local", "expert"]
+        routing_detail["retrieved_sources"] = sources
+        return PipelineResult(
+            answer=answer,
+            routing=RoutingDecision.HYBRID_KNOWLEDGE_ONLY,
+            privacy_level=privacy_level,
+            local_sufficiency=local_sufficiency,
+            sources=sources,
+            query_id=query_id,
+            routing_detail=routing_detail,
         )
 
     # ------------------------------------------------------------------
@@ -296,21 +424,32 @@ class Pipeline:
         if not self.guardian.is_available():
             return context or "No local context available."
         prompt = (
-            f"Answer the following query using only the local context provided. "
-            f"Be concise.\n\nQuery: {query}\n\nContext:\n{context or '(none)'}\n\nAnswer:"
+            "You are a private personal assistant with access only to the user's local vault.\n"
+            "Answer using ONLY the local context provided. If insufficient, say so clearly.\n"
+            "Do not guess or hallucinate facts not in the context.\n\n"
+            f"Query: {query}\n"
+            f"Local context:\n{context or '(none)'}\n\n"
+            "Answer:"
         )
         try:
             return self.guardian.generate(prompt, role="finalizer", query_id=query_id)
         except GuardianUnavailableError:
             return context or "No local context available."
 
-    def _finalize_hybrid(self, query: str, local_context: str, expert_response: str, query_id: str | None = None) -> str:
+    def _finalize_hybrid_merge(self, query: str, local_context: str, expert_response: str, query_id: str | None = None) -> str:
         prompt = (
-            f"You have two sources of information to answer this query:\n\n"
-            f"1. Local context:\n{local_context or '(none)'}\n\n"
-            f"2. Expert response:\n{expert_response}\n\n"
-            f"Query: {query}\n\n"
-            f"Synthesize a concise, accurate answer. Prefer local context for personal details.\n\nAnswer:"
+            "You are a personal assistant combining local private knowledge with general online advice.\n\n"
+            "Your task: produce a final, coherent answer for the user.\n\n"
+            "Guidelines:\n"
+            "- Use local facts for personal specifics. Do not expose raw personal data.\n"
+            "- Use the online reasoning for general knowledge, structure, and suggestions.\n"
+            "- Merge them into one natural response.\n"
+            "- Add a note if any assumption was made.\n"
+            "- Do not reveal that two separate models were used.\n\n"
+            f"User question: {query}\n\n"
+            f"Local context (private — do not expose directly):\n{local_context or '(none)'}\n\n"
+            f"General reasoning from knowledge base:\n{expert_response}\n\n"
+            "Final answer:"
         )
         try:
             return self.guardian.generate(prompt, role="finalizer", query_id=query_id)
@@ -387,7 +526,7 @@ class Pipeline:
                 (
                     str(uuid.uuid4()),
                     now,
-                    "guarded-online",
+                    payload.route or "guarded-online",
                     "openai_gpt4o",
                     query_id,
                     preview,

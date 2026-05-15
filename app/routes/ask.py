@@ -31,15 +31,30 @@ class AskResponse(BaseModel):
     status: str          # "ok" | "blocked" | "pending_approval"
     answer: str | None = None
     routing: str | None = None
+    answer_mode: str | None = None   # human-readable: "Local only" | "Guarded online" | "Hybrid" | "Approval required" | "Blocked for privacy"
     privacy_level: str | None = None
     sources: list[str] = []
     warning: str | None = None
     preview: dict | None = None
+    routing_detail: dict | None = None
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_MODE_LABELS = {
+    "local-only": "Local only",
+    "guarded-online": "Guarded online",
+    "hybrid-knowledge-only": "Hybrid",
+    "approval-required": "Approval required",
+    "blocked": "Blocked for privacy",
+}
+
+
+def _answer_mode(routing_value: str) -> str:
+    return _MODE_LABELS.get(routing_value, routing_value)
+
 
 def _make_pipeline() -> Pipeline:
     guardian = GuardianModel(
@@ -57,14 +72,17 @@ def _to_response(result: PipelineResult | PendingApproval) -> AskResponse:
             status=result.status,
             preview=result.preview,
         )
+    routing_value = result.routing.value
     return AskResponse(
         query_id=result.query_id,
         status=result.status,
         answer=result.answer,
-        routing=result.routing.value,
+        routing=routing_value,
+        answer_mode=_answer_mode(routing_value),
         privacy_level=result.privacy_level.value,
         sources=result.sources,
         warning=result.warning,
+        routing_detail=result.routing_detail if result.routing_detail else None,
     )
 
 
