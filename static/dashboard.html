@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MemoryVault — Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #f2f2f7;
+      --surface:  #ffffff;
+      --surface2: #f9f9fb;
+      --border:   #e5e5ea;
+      --text:     #1c1c1e;
+      --text2:    #8e8e93;
+      --blue:     #007aff;
+      --green:    #34c759;
+      --orange:   #ff9500;
+      --red:      #ff3b30;
+      --purple:   #af52de;
+      --radius:   12px;
+      --shadow:   0 1px 3px rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.04);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: 17px; font-weight: 600; }
+    .back-link {
+      font-size: 14px;
+      color: var(--blue);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .back-link:hover { opacity: .75; }
+    .refresh-btn {
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .refresh-btn:hover { opacity: .85; }
+
+    /* ── Layout ── */
+    .page { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    /* ── Section title ── */
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin: 28px 0 10px;
+    }
+    .section-title:first-child { margin-top: 0; }
+
+    /* ── Card grid ── */
+    .card-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .card-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .card-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+    .card-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    @media (max-width: 900px) {
+      .card-grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+      .card-grid.cols-3 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 560px) {
+      .card-grid.cols-4, .card-grid.cols-3, .card-grid.cols-2 { grid-template-columns: 1fr; }
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+    }
+    .card-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text2);
+      margin-bottom: 6px;
+    }
+    .card-value {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -.5px;
+      line-height: 1;
+    }
+    .card-sub {
+      font-size: 12px;
+      color: var(--text2);
+      margin-top: 4px;
+    }
+    .card-value.blue   { color: var(--blue); }
+    .card-value.green  { color: var(--green); }
+    .card-value.orange { color: var(--orange); }
+    .card-value.red    { color: var(--red); }
+    .card-value.purple { color: var(--purple); }
+
+    /* ── Model cards ── */
+    .model-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+    }
+    .model-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .model-name { font-size: 15px; font-weight: 600; }
+    .model-type { font-size: 12px; color: var(--text2); margin-top: 2px; }
+    .status-badge {
+      font-size: 12px;
+      font-weight: 500;
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+    .status-badge.online  { background: #d1f5dc; color: #1a7a35; }
+    .status-badge.offline { background: #ffe0de; color: #c0382b; }
+    .model-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .model-row-label { color: var(--text2); }
+    .model-row-value { font-weight: 500; font-variant-numeric: tabular-nums; }
+
+    /* ── Routing donut ── */
+    .routing-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+    }
+    .routing-bars { margin-top: 10px; }
+    .routing-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .routing-label { width: 120px; font-size: 12px; color: var(--text2); flex-shrink: 0; }
+    .routing-bar-wrap {
+      flex: 1;
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .routing-bar { height: 100%; border-radius: 4px; transition: width .4s ease; }
+    .routing-count { width: 32px; text-align: right; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    /* ── Prompt log ── */
+    .log-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .seg {
+      display: flex;
+      background: var(--border);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .seg-btn {
+      border: none;
+      background: transparent;
+      border-radius: 6px;
+      padding: 5px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text2);
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .seg-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    .log-count { margin-left: auto; font-size: 13px; color: var(--text2); }
+
+    /* Table */
+    .log-table-wrap {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      padding: 10px 16px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      font-size: 13px;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+    .cell-ts { color: var(--text2); white-space: nowrap; font-size: 12px; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .pill-local  { background: #e3f3ff; color: #005ec4; }
+    .pill-cloud  { background: #f0e6ff; color: #7b30bf; }
+    .pill-classifier { background: #fff4e0; color: #b05800; }
+    .pill-finalizer  { background: #e4f9eb; color: #1a7a35; }
+    .pill-expert     { background: #f0e6ff; color: #7b30bf; }
+    .pill-guardian   { background: #f2f2f7; color: #636366; }
+    .cell-text {
+      max-width: 260px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text2);
+      cursor: pointer;
+    }
+    .cell-text:hover { color: var(--text); }
+    .cell-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    /* Expand row */
+    .expand-row td {
+      background: var(--surface2);
+      padding: 0;
+    }
+    .expand-content {
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 700px) { .expand-content { grid-template-columns: 1fr; } }
+    .expand-block label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      margin-bottom: 6px;
+    }
+    .expand-block pre {
+      background: #f2f2f7;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 240px;
+      overflow-y: auto;
+      font-family: "SF Mono", "Fira Code", monospace;
+      color: var(--text);
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .page-btn {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--blue);
+      font-weight: 500;
+    }
+    .page-btn:disabled { color: var(--text2); cursor: default; opacity: .5; }
+    .page-info { font-size: 13px; color: var(--text2); }
+
+    .empty { text-align: center; padding: 40px; color: var(--text2); font-size: 14px; }
+    .loading { text-align: center; padding: 40px; color: var(--text2); }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <a href="/" class="back-link">← App</a>
+    <h1>Dashboard</h1>
+  </div>
+  <button class="refresh-btn" onclick="loadAll()">Refresh</button>
+</header>
+
+<div class="page">
+
+  <!-- Models -->
+  <div class="section-title">Models</div>
+  <div class="card-grid cols-2" id="models-grid">
+    <div class="loading">Loading…</div>
+  </div>
+
+  <!-- Stats -->
+  <div class="section-title">Usage</div>
+  <div class="card-grid cols-4" id="stats-grid">
+    <div class="loading">Loading…</div>
+  </div>
+
+  <!-- Routing breakdown + latency -->
+  <div class="card-grid cols-2" style="margin-top:12px" id="detail-grid">
+    <div class="loading">Loading…</div>
+  </div>
+
+  <!-- Prompt log -->
+  <div class="section-title">Prompt Log</div>
+  <div class="log-toolbar">
+    <div class="seg" id="side-filter">
+      <button class="seg-btn active" data-side="all"   onclick="setSide('all')">All</button>
+      <button class="seg-btn"        data-side="local" onclick="setSide('local')">Local</button>
+      <button class="seg-btn"        data-side="cloud" onclick="setSide('cloud')">Cloud</button>
+    </div>
+    <span class="log-count" id="log-count"></span>
+  </div>
+  <div class="log-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Side</th>
+          <th>Role</th>
+          <th>Model</th>
+          <th>Prompt</th>
+          <th>Response</th>
+          <th style="text-align:right">Latency</th>
+          <th style="text-align:right">Tokens</th>
+        </tr>
+      </thead>
+      <tbody id="log-body">
+        <tr><td colspan="8" class="loading">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination" id="pagination"></div>
+
+</div><!-- /page -->
+
+<script>
+const PAGE_SIZE = 20;
+let _page = 0;
+let _side = 'all';
+let _total = 0;
+let _expandedIdx = null;
+
+async function loadAll() {
+  await Promise.all([loadModels(), loadStats(), loadPrompts()]);
+}
+
+// ── Models ──────────────────────────────────────────────────────────────────
+async function loadModels() {
+  const res = await fetch('/api/dashboard/models');
+  const d = await res.json();
+  const g = d.guardian, e = d.expert;
+
+  document.getElementById('models-grid').innerHTML = `
+    ${modelCard('Guardian (Local)', g.name, g.available, g.base_url, [
+      ['Retrieval top-k',  d.retrieval_top_k],
+      ['Distance threshold', d.retrieval_distance_threshold],
+      ['Max context chars', d.expert_max_context_chars.toLocaleString()],
+    ])}
+    ${modelCard('Expert (Cloud)', e.name, e.available, 'OpenAI API', [
+      ['Max tokens', '2048'],
+    ])}
+  `;
+}
+
+function modelCard(type, name, available, url, rows) {
+  const badge = available
+    ? '<span class="status-badge online">Online</span>'
+    : '<span class="status-badge offline">Offline</span>';
+  const rowsHtml = rows.map(([l, v]) => `
+    <div class="model-row">
+      <span class="model-row-label">${l}</span>
+      <span class="model-row-value">${v}</span>
+    </div>`).join('');
+  return `
+    <div class="model-card">
+      <div class="model-header">
+        <div>
+          <div class="model-name">${name}</div>
+          <div class="model-type">${type} · ${url || ''}</div>
+        </div>
+        ${badge}
+      </div>
+      ${rowsHtml}
+    </div>`;
+}
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  const res = await fetch('/api/dashboard/stats');
+  const d = await res.json();
+
+  document.getElementById('stats-grid').innerHTML = `
+    ${statCard('Total Queries',       d.total_queries,                   'blue')}
+    ${statCard('Local Only',          d.local_only,                      'green')}
+    ${statCard('Guarded Online',      d.guarded_online,                  'purple')}
+    ${statCard('Cloud API Calls',     d.cloud_calls,                     'orange')}
+  `;
+
+  const tokenTotal = d.total_prompt_tokens + d.total_completion_tokens;
+  document.getElementById('detail-grid').innerHTML = `
+    <div class="routing-card">
+      <div class="card-label">Routing Breakdown</div>
+      <div class="routing-bars">
+        ${routingBar('Local Only',         d.local_only,         d.total_queries, 'var(--green)')}
+        ${routingBar('Guarded Online',     d.guarded_online,     d.total_queries, 'var(--purple)')}
+        ${routingBar('Approval Required',  d.approval_required,  d.total_queries, 'var(--orange)')}
+        ${routingBar('Blocked',            d.blocked,            d.total_queries, 'var(--red)')}
+      </div>
+    </div>
+    <div class="card-grid cols-2" style="gap:12px">
+      ${statCard('Prompt Tokens',     d.total_prompt_tokens.toLocaleString(),     'blue',   'input to cloud')}
+      ${statCard('Completion Tokens', d.total_completion_tokens.toLocaleString(), 'purple', 'output from cloud')}
+      ${statCard('Est. Cost',         '$' + d.estimated_cost_usd.toFixed(4),      'orange', 'GPT-4o pricing')}
+      ${statCard('Leaks Detected',    d.leak_detected,                            d.leak_detected > 0 ? 'red' : 'green', 'response checker')}
+    </div>
+  `;
+}
+
+function statCard(label, value, color, sub = '') {
+  return `
+    <div class="card">
+      <div class="card-label">${label}</div>
+      <div class="card-value ${color}">${value}</div>
+      ${sub ? `<div class="card-sub">${sub}</div>` : ''}
+    </div>`;
+}
+
+function routingBar(label, count, total, color) {
+  const pct = total > 0 ? Math.round(count / total * 100) : 0;
+  return `
+    <div class="routing-row">
+      <span class="routing-label">${label}</span>
+      <div class="routing-bar-wrap">
+        <div class="routing-bar" style="width:${pct}%;background:${color}"></div>
+      </div>
+      <span class="routing-count">${count}</span>
+    </div>`;
+}
+
+// ── Prompt log ───────────────────────────────────────────────────────────────
+function setSide(side) {
+  _side = side;
+  _page = 0;
+  document.querySelectorAll('#side-filter .seg-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.side === side);
+  });
+  loadPrompts();
+}
+
+async function loadPrompts() {
+  const offset = _page * PAGE_SIZE;
+  const res = await fetch(`/api/dashboard/prompts?limit=${PAGE_SIZE}&offset=${offset}&side=${_side}`);
+  const d = await res.json();
+  _total = d.total;
+  _expandedIdx = null;
+
+  document.getElementById('log-count').textContent =
+    `${d.total.toLocaleString()} entr${d.total === 1 ? 'y' : 'ies'}`;
+
+  const tbody = document.getElementById('log-body');
+  if (d.entries.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty">No entries yet.</td></tr>`;
+    document.getElementById('pagination').innerHTML = '';
+    return;
+  }
+
+  tbody.innerHTML = d.entries.map((e, i) => entryRow(e, i)).join('');
+  renderPagination();
+}
+
+function entryRow(e, i) {
+  const time = new Date(e.ts).toLocaleString(undefined, {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+  const sidePill  = `<span class="pill pill-${e.side}">${e.side}</span>`;
+  const rolePill  = `<span class="pill pill-${e.role}">${e.role}</span>`;
+  const tokens    = e.tokens ? `${(e.tokens.prompt + e.tokens.completion).toLocaleString()}` : '—';
+  const prompt    = esc(e.prompt).slice(0, 80) + (e.prompt.length > 80 ? '…' : '');
+  const response  = esc(e.response).slice(0, 80) + (e.response.length > 80 ? '…' : '');
+
+  return `
+    <tr onclick="toggleExpand(${i})" style="cursor:pointer">
+      <td class="cell-ts">${time}</td>
+      <td>${sidePill}</td>
+      <td>${rolePill}</td>
+      <td class="cell-num">${esc(e.model)}</td>
+      <td class="cell-text">${prompt}</td>
+      <td class="cell-text">${response}</td>
+      <td class="cell-num" style="text-align:right">${e.latency_ms}ms</td>
+      <td class="cell-num" style="text-align:right">${tokens}</td>
+    </tr>
+    <tr class="expand-row" id="expand-${i}" style="display:none">
+      <td colspan="8">
+        <div class="expand-content">
+          <div class="expand-block">
+            <label>Prompt</label>
+            <pre>${esc(e.prompt)}</pre>
+          </div>
+          <div class="expand-block">
+            <label>Response</label>
+            <pre>${esc(e.response)}</pre>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+}
+
+function toggleExpand(i) {
+  const row = document.getElementById(`expand-${i}`);
+  if (!row) return;
+  const isOpen = row.style.display !== 'none';
+  // Close any open row
+  if (_expandedIdx !== null) {
+    const prev = document.getElementById(`expand-${_expandedIdx}`);
+    if (prev) prev.style.display = 'none';
+  }
+  if (isOpen) {
+    _expandedIdx = null;
+  } else {
+    row.style.display = '';
+    _expandedIdx = i;
+  }
+}
+
+function renderPagination() {
+  const totalPages = Math.ceil(_total / PAGE_SIZE);
+  if (totalPages <= 1) { document.getElementById('pagination').innerHTML = ''; return; }
+  document.getElementById('pagination').innerHTML = `
+    <button class="page-btn" onclick="changePage(${_page - 1})" ${_page === 0 ? 'disabled' : ''}>← Prev</button>
+    <span class="page-info">Page ${_page + 1} of ${totalPages}</span>
+    <button class="page-btn" onclick="changePage(${_page + 1})" ${_page >= totalPages - 1 ? 'disabled' : ''}>Next →</button>
+  `;
+}
+
+function changePage(p) { _page = p; loadPrompts(); }
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+loadAll();
+</script>
+</body>
+</html>

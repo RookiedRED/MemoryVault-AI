@@ -9,6 +9,7 @@ from app.config import DB_PATH, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT_SE
 from app.database import init_db
 from app.routes.ask import router as ask_router
 from app.routes.audit import router as audit_router
+from app.routes.dashboard import router as dashboard_router
 from app.routes.mobile import router as mobile_router
 from app.routes.privacy import router as privacy_router
 from app.routes.queries import router as queries_router
@@ -57,6 +58,7 @@ app.include_router(privacy_router)
 app.include_router(audit_router)
 app.include_router(queries_router)
 app.include_router(mobile_router)
+app.include_router(dashboard_router)
 
 app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
@@ -69,6 +71,11 @@ def ui() -> FileResponse:
 @app.get("/mobile", tags=["ui"])
 def mobile_ui() -> FileResponse:
     return FileResponse(str(_STATIC / "mobile.html"))
+
+
+@app.get("/dashboard", tags=["ui"])
+def dashboard_ui() -> FileResponse:
+    return FileResponse(str(_STATIC / "dashboard.html"))
 
 
 @app.get("/health", tags=["health"])
