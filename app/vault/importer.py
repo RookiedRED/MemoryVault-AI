@@ -42,12 +42,69 @@ def _extract_pdf(data: bytes) -> str:
             text = page.extract_text()
             if text:
                 pages.append(text)
-        return "\n\n".join(pages)
+        raw = "\n\n".join(pages)
+        return _clean_pdf_text(raw)
     except ImportError:
         # pypdf not installed — fall back to raw decode
         return data.decode("utf-8", errors="replace")
     except Exception:
         return data.decode("utf-8", errors="replace")
+
+
+def _clean_pdf_text(text: str) -> str:
+    """
+    Fix glyph-positioning PDF artifacts where words are split into short
+    letter-clusters separated by spaces:
+      "pla nning with out"  → "planning without"
+      "e xpe rie nce"       → "experience"
+      "Softwa re Engine e r" → "Software Engineer"
+
+    This occurs in PDFs where each glyph has an explicit x-position offset,
+    causing pypdf to insert spaces between character groups. We detect runs
+    of 3+ short tokens (1–6 chars each) separated by single spaces and merge
+    them. To avoid merging legitimate short-word phrases, we anchor the
+    pattern so it only fires when all tokens in the run are very short (≤6),
+    which is atypical of normal prose.
+    """
+    import re
+
+    def _merge_run(m: re.Match) -> str:
+        return m.group(0).replace(" ", "")
+
+    # Pass 1: runs of 3+ short case-insensitive tokens (1–6 chars) —
+    # catches "pla nning" (3 frags), "e xpe rie nce" (4 frags), etc.
+    pattern = re.compile(r'\b[A-Za-z]{1,6}(?:[ ][A-Za-z]{1,6}){2,}\b')
+
+    def _conditional_merge(m: re.Match) -> str:
+        tokens = m.group(0).split(" ")
+        # Only merge if the average token length is suspiciously short (< 4.5 chars)
+        # — real multi-word phrases like "United States" average ~6 chars/token
+        avg_len = sum(len(t) for t in tokens) / len(tokens)
+        if avg_len < 4.5:
+            return "".join(tokens)
+        return m.group(0)
+
+    cleaned = pattern.sub(_conditional_merge, text)
+
+    # Pass 2: catch 2-fragment pairs where one piece is a stub (≤3 chars):
+    # "Softwa re" (6+2), "compute r" (7+1), "e xpe" (1+3), etc.
+    # Only merge when the second token is a very short trailing stub (≤3 chars).
+    stub_pattern = re.compile(r'\b([A-Za-z]{3,8})[ ]([A-Za-z]{1,3})\b')
+
+    def _merge_stub(m: re.Match) -> str:
+        head, tail = m.group(1), m.group(2)
+        # Don't merge common English prepositions/articles/conjunctions
+        _STOP = {"a", "an", "in", "on", "of", "to", "at", "by", "or", "if",
+                 "is", "it", "he", "she", "we", "do", "so", "as", "be",
+                 "for", "the", "and", "but", "not", "are", "was", "has"}
+        if tail.lower() in _STOP or head.lower() in _STOP:
+            return m.group(0)
+        return head + tail
+
+    cleaned = stub_pattern.sub(_merge_stub, cleaned)
+    # Collapse double-spaces left behind after merging
+    cleaned = re.sub(r'[ ]{2,}', ' ', cleaned)
+    return cleaned
 
 
 # ---------------------------------------------------------------------------

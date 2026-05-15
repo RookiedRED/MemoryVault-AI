@@ -262,9 +262,16 @@ class Pipeline:
         local_sufficiency: LocalSufficiency,
         routing_detail: dict,
     ) -> "PipelineResult":
+        # When Guardian says local data is irrelevant to the question, don't
+        # include it in the cloud payload — only the question goes online.
+        context_for_cloud = (
+            "" if local_sufficiency == LocalSufficiency.LOCAL_MISSING_EXTERNAL_ONLY
+            else local_context
+        )
+
         # Step 5: sanitize
         try:
-            payload, redaction_map = sanitize(query_text, local_context, privacy_level, self.guardian)
+            payload, redaction_map = sanitize(query_text, context_for_cloud, privacy_level, self.guardian)
         except (BlockedError, AssertionError):
             return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
 
@@ -373,18 +380,18 @@ class Pipeline:
         self,
         query_text: str,
         top_k: int = RETRIEVAL_TOP_K,
-        distance_threshold: float = RETRIEVAL_DISTANCE_THRESHOLD,
     ) -> str:
         """
-        Embed the query and retrieve the most relevant chunks from vec_chunks
-        via cosine-distance search.
+        Retrieve the top-k most similar chunks from the vault by cosine distance.
 
-        Chunks whose cosine distance exceeds `distance_threshold` are dropped —
-        they are semantically unrelated to the query and would only bloat the
-        cloud prompt with irrelevant personal data.
+        No hard distance threshold is applied here — OCR-degraded PDFs and
+        short queries routinely produce distances above any reasonable cutoff
+        even when the content is genuinely relevant. Relevance filtering is
+        delegated to the Guardian's analyze() step: if the Guardian determines
+        local context is irrelevant (LOCAL_MISSING_EXTERNAL_ONLY), the caller
+        suppresses it before building the cloud payload.
 
-        Returns empty string if the vault is empty, embedder is unavailable,
-        or no chunks pass the relevance threshold.
+        Returns empty string if the vault is empty or the embedder is unavailable.
         """
         try:
             from app.vault.embedder import embed_one, serialize
@@ -406,15 +413,13 @@ class Pipeline:
         except Exception:
             return ""
 
-        # Drop chunks that are not meaningfully related to the query
-        relevant = [row for row in rows if row["distance"] <= distance_threshold]
-        if not relevant:
+        if not rows:
             return ""
 
-        parts = [f"[chunk {i + 1}] {row['text']}" for i, row in enumerate(relevant)]
+        parts = [f"[chunk {i + 1}] {row['text']}" for i, row in enumerate(rows)]
         context = "\n\n".join(parts)
 
-        # Hard cap: never send more than EXPERT_MAX_CONTEXT_CHARS to the cloud
+        # Hard cap on chars passed to the Guardian for analysis
         if len(context) > EXPERT_MAX_CONTEXT_CHARS:
             context = context[:EXPERT_MAX_CONTEXT_CHARS] + "\n[context truncated]"
 
