@@ -286,7 +286,7 @@ class Pipeline:
         ):
             try:
                 from app.search.tavily_client import search as web_search
-                results = web_search(query_text)
+                results = web_search(query_text, query_id=query_id)
                 if results:
                     payload.web_search_results = results
                     routing_detail["web_search_used"] = True

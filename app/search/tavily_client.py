@@ -18,7 +18,7 @@ from typing import Optional
 from app.config import TAVILY_API_KEY, TAVILY_MAX_RESULTS
 
 
-def search(query: str, max_results: int = TAVILY_MAX_RESULTS) -> Optional[str]:
+def search(query: str, max_results: int = TAVILY_MAX_RESULTS, query_id: Optional[str] = None) -> Optional[str]:
     """
     Run a web search via Tavily and return a formatted string of results.
 
@@ -58,7 +58,21 @@ def search(query: str, max_results: int = TAVILY_MAX_RESULTS) -> Optional[str]:
             snippet = content[:500] if len(content) > 500 else content
             parts.append(f"[{i}] {title}\nSource: {url}\n{snippet}")
 
-        return "\n\n".join(parts)
+        formatted = "\n\n".join(parts)
+
+        try:
+            from app.prompt_logger import log_search
+            log_search(
+                query=query,
+                results=formatted,
+                latency_ms=latency_ms,
+                num_results=len(parts),
+                query_id=query_id,
+            )
+        except Exception:
+            pass
+
+        return formatted
 
     except ImportError:
         return None

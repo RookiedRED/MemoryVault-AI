@@ -82,6 +82,27 @@ def log_cloud(
     )
 
 
+def log_search(
+    *,
+    query: str,
+    results: Optional[str],
+    latency_ms: int,
+    num_results: int,
+    query_id: Optional[str] = None,
+) -> None:
+    """Log a Tavily web search call."""
+    _write(
+        side="search",
+        model="tavily",
+        role="web-search",
+        query_id=query_id,
+        prompt=query,
+        response=results or "(no results)",
+        latency_ms=latency_ms,
+        tokens={"results": num_results},
+    )
+
+
 def _write(
     *,
     side: str,
