@@ -39,7 +39,7 @@ def _warmup_guardian() -> None:
         )
         if g.is_available():
             # A minimal generate call forces the model into GPU/RAM
-            g.generate("ping")
+            g.generate("ping", log=False)
     except Exception:
         pass
 

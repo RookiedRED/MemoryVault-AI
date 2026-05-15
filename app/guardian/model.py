@@ -39,7 +39,14 @@ class GuardianModel:
         except Exception:
             return False
 
-    def generate(self, prompt: str, *, role: str = "guardian", query_id: str | None = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        role: str = "guardian",
+        query_id: str | None = None,
+        log: bool = True,
+    ) -> str:
         """Send a prompt and return the generated text. Raises GuardianUnavailableError on failure."""
         t0 = time.monotonic()
         try:
@@ -57,18 +64,19 @@ class GuardianModel:
         except Exception as exc:
             raise GuardianUnavailableError(f"Guardian unavailable: {exc}") from exc
 
-        latency_ms = int((time.monotonic() - t0) * 1000)
-        try:
-            from app.prompt_logger import log_local
-            log_local(
-                model=self.model,
-                role=role,
-                prompt=prompt,
-                response=response_text,
-                latency_ms=latency_ms,
-                query_id=query_id,
-            )
-        except Exception:
-            pass
+        if log:
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            try:
+                from app.prompt_logger import log_local
+                log_local(
+                    model=self.model,
+                    role=role,
+                    prompt=prompt,
+                    response=response_text,
+                    latency_ms=latency_ms,
+                    query_id=query_id,
+                )
+            except Exception:
+                pass
 
         return response_text
