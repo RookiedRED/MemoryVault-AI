@@ -22,26 +22,84 @@ Return ONLY valid JSON — no explanation, no markdown:
   "confidence": 0.0-1.0
 }}
 
-Routing rules:
+=== SUFFICIENCY DEFINITIONS (read carefully) ===
+
+LOCAL_SUFFICIENT:
+  The local vault content DIRECTLY and COMPLETELY answers this specific question.
+  The user would be fully satisfied with only local data.
+  Example: "What is my phone number?" when the vault contains a resume with the number.
+
+LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL:
+  Local data is relevant background, BUT the question also requires external knowledge,
+  current market data, real-time information, internet search, or broader expertise.
+  The online model adds significant value that local data cannot provide.
+  Example: "Based on my resume, which companies should I apply to?" — resume is
+  background context, but current company listings and market info come from the internet.
+  Example: "Write a cover letter using my resume" — resume needed locally, writing
+  help and job market knowledge from online.
+
+LOCAL_MISSING_EXTERNAL_ONLY:
+  No private personal data is needed. The question is fully answerable with public
+  or general knowledge alone.
+  Example: "What is Python?", "Explain machine learning", "Today's weather".
+
+LOCAL_PRIVATE_BLOCKED:
+  The needed data is too sensitive to share online and the local model must answer
+  alone or explain the limitation.
+
+=== CRITICAL RULE: needs_online_model ===
+Set needs_online_model = true whenever the query asks about ANY of:
+  - current market conditions, industry trends, job listings, company names
+  - real-time information (news, stock prices, weather, events)
+  - general knowledge not stored in the vault
+  - writing improvement, drafting, or structured generation
+  - technical advice beyond the local context
+
+Having relevant LOCAL context does NOT mean needs_online_model = false.
+A resume tells you ABOUT the person but cannot tell you WHICH COMPANIES ARE HIRING.
+
+=== ROUTING RULES ===
 - LOCAL_SUFFICIENT or LOCAL_PRIVATE_BLOCKED → local-only
 - SECRET → blocked
 - HIGHLY_PRIVATE + needs online → approval-required
 - PRIVATE + needs online → hybrid-knowledge-only (do NOT send private context online)
 - LOW_SENSITIVE or PUBLIC + needs online → guarded-online
-- LOCAL_MISSING_EXTERNAL_ONLY (no private data needed) → guarded-online
+- LOCAL_MISSING_EXTERNAL_ONLY → guarded-online
 
-Privacy levels:
+=== PRIVACY LEVELS ===
   PUBLIC        — general knowledge, no personal info
-  LOW_SENSITIVE — personal but not sensitive (job title, location, preferences)
-  PRIVATE       — should stay private (career notes, plans, opinions)
-  HIGHLY_PRIVATE — sensitive (medical, legal, financial, relationship)
+  LOW_SENSITIVE — personal but not sensitive (resume, job title, skills, location)
+  PRIVATE       — should stay private (personal notes, opinions, plans)
+  HIGHLY_PRIVATE — sensitive (medical, legal, financial, relationship details)
   SECRET        — credentials, passwords, API keys, auth tokens
 
-Local sufficiency:
-  LOCAL_SUFFICIENT               — local data alone fully answers the question
-  LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL — local data exists but external knowledge would improve the answer
-  LOCAL_MISSING_EXTERNAL_ONLY    — no private data needed; online model handles it
-  LOCAL_PRIVATE_BLOCKED          — data too sensitive to share; answer locally or explain limitation
+=== EXAMPLES ===
+Query: "那目前市場上有什麼公司我可以投履歷嗎"
+Context: resume with work experience
+→ local_sufficiency: LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL
+→ needs_online_model: true  (market/company data not in vault)
+→ privacy_level: LOW_SENSITIVE  (resume background)
+→ recommended_route: guarded-online
+
+Query: "幫我根據履歷寫求職信"
+Context: resume
+→ local_sufficiency: LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL
+→ needs_online_model: true  (writing expertise from online)
+→ privacy_level: LOW_SENSITIVE
+→ recommended_route: guarded-online
+
+Query: "今天天氣怎樣"
+Context: resume (irrelevant)
+→ local_sufficiency: LOCAL_MISSING_EXTERNAL_ONLY
+→ needs_online_model: true
+→ privacy_level: PUBLIC
+→ recommended_route: guarded-online
+
+Query: "我的電話號碼是幾號"
+Context: resume with phone number
+→ local_sufficiency: LOCAL_SUFFICIENT
+→ needs_online_model: false
+→ recommended_route: local-only
 
 Query: {query}
 Retrieved local context: {context_snippet}
@@ -86,7 +144,7 @@ def analyze(
     Returns AnalysisResult with all routing fields.
     Falls back to HIGHLY_PRIVATE / LOCAL_PRIVATE_BLOCKED / LOCAL_ONLY on parse failure.
     """
-    context_snippet = context[:400] if context else "(none)"
+    context_snippet = context[:500] if context else "(none)"
 
     # Cache hit — skip Ollama call
     cached = cache.get(query, context_snippet)
