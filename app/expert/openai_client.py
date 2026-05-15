@@ -37,11 +37,17 @@ class OpenAIExpertClient(ExpertModelClient):
             "You are a helpful assistant. You MUST follow all of these rules:\n"
             + "\n".join(f"- {action}" for action in payload.forbidden_actions)
         )
+        web_section = (
+            f"\n\n=== Real-time Web Search Results ===\n{payload.web_search_results}"
+            if getattr(payload, "web_search_results", "")
+            else ""
+        )
         user_msg = (
             f"Task: {payload.task or 'Answer the question using the provided context.'}\n"
             f"Privacy level: {payload.privacy_level}\n"
             f"Question: {payload.user_question}\n\n"
             f"Context:\n{payload.sanitized_context}"
+            f"{web_section}"
         )
         full_prompt = f"[SYSTEM]\n{system_msg}\n\n[USER]\n{user_msg}"
 

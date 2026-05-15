@@ -279,6 +279,24 @@ class Pipeline:
         if not payload.user_question.strip() and not payload.sanitized_context.strip():
             return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
 
+        # Step 6.5: web search — fetch live data when external knowledge is needed
+        if local_sufficiency in (
+            LocalSufficiency.LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL,
+            LocalSufficiency.LOCAL_MISSING_EXTERNAL_ONLY,
+        ):
+            try:
+                from app.search.tavily_client import search as web_search
+                results = web_search(query_text)
+                if results:
+                    payload.web_search_results = results
+                    routing_detail["web_search_used"] = True
+                else:
+                    routing_detail["web_search_used"] = False
+            except Exception:
+                routing_detail["web_search_used"] = False
+        else:
+            routing_detail["web_search_used"] = False
+
         # Step 7: call Expert
         expert_response: Optional[str] = None
         status_code = 500

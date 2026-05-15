@@ -35,6 +35,7 @@ class SanitizedPayload:
         "do not assume private facts not provided",
         "do not claim access to local files",
     ])
+    web_search_results: str = ""            # injected by pipeline after Tavily search
     output_format: str = "structured answer for the local guardian to merge"
 
 

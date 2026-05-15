@@ -35,6 +35,11 @@ OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o")
 OPENAI_MAX_TOKENS: int = int(os.getenv("OPENAI_MAX_TOKENS", "2048"))
 EXPERT_MAX_CONTEXT_CHARS: int = int(os.getenv("EXPERT_MAX_CONTEXT_CHARS", "4000"))
 
+# --- Web Search (Tavily) ---
+TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")
+# Maximum search result snippets to inject per query (keeps context window lean)
+TAVILY_MAX_RESULTS: int = int(os.getenv("TAVILY_MAX_RESULTS", "3"))
+
 # --- Privacy policy defaults ---
 DEFAULT_EXTERNAL_CALL: str = "deny"
 RAW_PERSONAL_DATA_ONLINE: bool = False
