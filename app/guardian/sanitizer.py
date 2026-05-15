@@ -7,6 +7,32 @@ from app.privacy.markers import has_private_markers
 from app.privacy.taxonomy import PrivacyLevel
 
 
+# ---------------------------------------------------------------------------
+# Module-level prompt prefixes (Ollama KV-cache optimisation)
+#
+# The static part of each Guardian prompt is defined once here so that Ollama
+# sees the same leading token sequence on every call and can reuse the cached
+# KV state rather than recomputing it. Dynamic content (query, context) is
+# always appended *after* the fixed prefix.
+# ---------------------------------------------------------------------------
+
+_ANONYMIZE_PREFIX = (
+    "Anonymize the following text for external use.\n"
+    "Remove all names, contact info, addresses, and any identifying details.\n"
+    "Replace specifics with generic descriptions.\n"
+    "Keep only information that is relevant to the user's question.\n\n"
+)
+
+_HYBRID_PAYLOAD_PREFIX = (
+    "You are preparing a privacy-safe request for an online AI model.\n"
+    "The user has private local context that must NOT be sent online.\n\n"
+    "Given the original question and local context below, produce two things:\n"
+    "1. An abstracted version of the question that removes all private details but preserves the general intent.\n"
+    "2. A one-sentence topic summary of what local information is available (no actual content, just categories).\n\n"
+    'Return ONLY valid JSON:\n{"abstracted_question": "...", "local_context_summary": "..."}\n\n'
+)
+
+
 class BlockedError(Exception):
     """Raised when content contains patterns that can never be sent online."""
 
@@ -119,15 +145,10 @@ def build_hybrid_payload(
     Returns (SanitizedPayload, RedactionMap={}) — no raw private context is included.
     """
     prompt = (
-        "You are preparing a privacy-safe request for an online AI model.\n"
-        "The user has private local context that must NOT be sent online.\n\n"
-        "Given the original question and local context below, produce two things:\n"
-        "1. An abstracted version of the question that removes all private details but preserves the general intent.\n"
-        "2. A one-sentence topic summary of what local information is available (no actual content, just categories).\n\n"
-        'Return ONLY valid JSON:\n{"abstracted_question": "...", "local_context_summary": "..."}\n\n'
-        f"Original question: {query}\n"
-        f"Local context (KEEP PRIVATE — summarize only): {local_context[:800]}\n\n"
-        "JSON:"
+        _HYBRID_PAYLOAD_PREFIX
+        + f"Original question: {query}\n"
+        + f"Local context (KEEP PRIVATE — summarize only): {local_context[:800]}\n\n"
+        + "JSON:"
     )
 
     raw = model.generate(prompt, role="abstractor")
@@ -194,11 +215,9 @@ def _guardian_anonymize(query: str, context: str, model: GuardianModel) -> str:
     Used for PRIVATE and HIGHLY_PRIVATE content (after approval).
     """
     prompt = (
-        "Anonymize the following text for external use. "
-        "Remove all names, contact info, addresses, and any identifying details. "
-        "Replace specifics with generic descriptions. "
-        f"Keep only information relevant to answering: {query}\n\n"
-        f"Text to anonymize:\n{context[:1500]}\n\n"
-        "Anonymized text (no names, no contact info, no identifiers):"
+        _ANONYMIZE_PREFIX
+        + f"Question: {query}\n\n"
+        + f"Text to anonymize:\n{context[:1500]}\n\n"
+        + "Anonymized text (no names, no contact info, no identifiers):"
     )
     return model.generate(prompt)

@@ -27,6 +27,33 @@ from app.guardian.sanitizer import BlockedError, SanitizedPayload, build_hybrid_
 from app.privacy.policy import policy_manager
 from app.privacy.taxonomy import LocalSufficiency, PrivacyLevel, RoutingDecision, default_route
 
+# ---------------------------------------------------------------------------
+# Module-level prompt prefixes (Ollama KV-cache optimisation)
+#
+# Ollama caches the KV state for any prompt whose leading tokens are identical
+# to a previous call. By keeping these static prefixes as module-level
+# constants (not rebuilt inside methods), we guarantee the same byte sequence
+# appears at the start of every prompt, maximising KV-cache hits and cutting
+# Guardian latency significantly after the first call in a session.
+# ---------------------------------------------------------------------------
+
+_LOCAL_FINALIZE_PREFIX = (
+    "You are a private personal assistant with access only to the user's local vault.\n"
+    "Answer using ONLY the local context provided. If insufficient, say so clearly.\n"
+    "Do not guess or hallucinate facts not in the context.\n\n"
+)
+
+_HYBRID_FINALIZE_PREFIX = (
+    "You are a personal assistant combining local private knowledge with general online advice.\n\n"
+    "Your task: produce a final, coherent answer for the user.\n\n"
+    "Guidelines:\n"
+    "- Use local facts for personal specifics. Do not expose raw personal data.\n"
+    "- Use the online reasoning for general knowledge, structure, and suggestions.\n"
+    "- Merge them into one natural response.\n"
+    "- Add a note if any assumption was made.\n"
+    "- Do not reveal that two separate models were used.\n\n"
+)
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -447,12 +474,10 @@ class Pipeline:
         if not self.guardian.is_available():
             return context or "No local context available."
         prompt = (
-            "You are a private personal assistant with access only to the user's local vault.\n"
-            "Answer using ONLY the local context provided. If insufficient, say so clearly.\n"
-            "Do not guess or hallucinate facts not in the context.\n\n"
-            f"Query: {query}\n"
-            f"Local context:\n{context or '(none)'}\n\n"
-            "Answer:"
+            _LOCAL_FINALIZE_PREFIX
+            + f"Query: {query}\n"
+            + f"Local context:\n{context or '(none)'}\n\n"
+            + "Answer:"
         )
         try:
             return self.guardian.generate(prompt, role="finalizer", query_id=query_id)
@@ -461,18 +486,11 @@ class Pipeline:
 
     def _finalize_hybrid_merge(self, query: str, local_context: str, expert_response: str, query_id: str | None = None) -> str:
         prompt = (
-            "You are a personal assistant combining local private knowledge with general online advice.\n\n"
-            "Your task: produce a final, coherent answer for the user.\n\n"
-            "Guidelines:\n"
-            "- Use local facts for personal specifics. Do not expose raw personal data.\n"
-            "- Use the online reasoning for general knowledge, structure, and suggestions.\n"
-            "- Merge them into one natural response.\n"
-            "- Add a note if any assumption was made.\n"
-            "- Do not reveal that two separate models were used.\n\n"
-            f"User question: {query}\n\n"
-            f"Local context (private — do not expose directly):\n{local_context or '(none)'}\n\n"
-            f"General reasoning from knowledge base:\n{expert_response}\n\n"
-            "Final answer:"
+            _HYBRID_FINALIZE_PREFIX
+            + f"User question: {query}\n\n"
+            + f"Local context (private — do not expose directly):\n{local_context or '(none)'}\n\n"
+            + f"General reasoning from knowledge base:\n{expert_response}\n\n"
+            + "Final answer:"
         )
         try:
             return self.guardian.generate(prompt, role="finalizer", query_id=query_id)

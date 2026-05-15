@@ -5,6 +5,21 @@ from app.config import OPENAI_API_KEY, OPENAI_MAX_TOKENS, OPENAI_MODEL
 from app.expert.base import ExpertModelClient
 from app.expert.rate_limiter import RateLimitExceededError, rate_limiter
 
+# Static system message — extracted as a module-level constant so OpenAI's
+# automatic prompt caching can match the identical prefix across every call
+# and apply the 50% cached-token discount (requires ≥1024 tokens; this alone
+# is short, but paired with a long sanitized_context prefix it crosses the
+# threshold). Must never be built dynamically inside call_with_usage().
+_SYSTEM_MSG = (
+    "You are a helpful assistant. You MUST follow all of these rules:\n"
+    "- do not infer the user's real identity\n"
+    "- do not request raw private data\n"
+    "- do not reconstruct redacted fields\n"
+    "- do not output hidden identifiers\n"
+    "- do not assume private facts not provided\n"
+    "- do not claim access to local files"
+)
+
 
 class OpenAIExpertClient(ExpertModelClient):
     """
@@ -33,10 +48,7 @@ class OpenAIExpertClient(ExpertModelClient):
 
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
-        system_msg = (
-            "You are a helpful assistant. You MUST follow all of these rules:\n"
-            + "\n".join(f"- {action}" for action in payload.forbidden_actions)
-        )
+        system_msg = _SYSTEM_MSG
         web_section = (
             f"\n\n=== Real-time Web Search Results ===\n{payload.web_search_results}"
             if getattr(payload, "web_search_results", "")
