@@ -54,6 +54,26 @@ _HYBRID_FINALIZE_PREFIX = (
     "- Do not reveal that two separate models were used.\n\n"
 )
 
+# Search query optimiser prefix — also a KV-cache constant.
+# The Guardian converts a natural-language question into a concise English
+# search query that performs better with Tavily than raw user input would.
+_SEARCH_QUERY_PREFIX = (
+    "Convert the user's question into a concise web search query.\n\n"
+    "Rules:\n"
+    "- Output ONLY the search query — no explanation, no punctuation at the end\n"
+    "- Write in English (produces better search results)\n"
+    "- 3 to 8 words, specific and factual\n"
+    "- Include the current year if the question is time-sensitive\n"
+    "- Remove personal pronouns and conversational filler\n\n"
+    "Examples:\n"
+    "Q: 那目前市場上有什麼公司我可以投履歷嗎\n"
+    "A: Taiwan software engineer job openings 2025\n\n"
+    "Q: 最近有什麼 AI 新聞\n"
+    "A: AI news latest 2025\n\n"
+    "Q: Python 怎麼處理 async\n"
+    "A: Python async await tutorial\n\n"
+)
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -306,19 +326,24 @@ class Pipeline:
         if not payload.user_question.strip() and not payload.sanitized_context.strip():
             return self._local_path(query_id, query_text, local_context, privacy_level, local_sufficiency, RoutingDecision.LOCAL_ONLY, routing_detail)
 
-        # Step 6.5: web search — fetch live data when external knowledge is needed
+        # Step 6.5: web search — fetch live data when external knowledge is needed.
+        # Guardian first converts the raw question into a focused English search
+        # query, then Tavily searches with that optimised string.
         if local_sufficiency in (
             LocalSufficiency.LOCAL_INSUFFICIENT_EXTERNAL_HELPFUL,
             LocalSufficiency.LOCAL_MISSING_EXTERNAL_ONLY,
         ):
             try:
                 from app.search.tavily_client import search as web_search
-                results = web_search(query_text, query_id=query_id)
+                search_query = self._extract_search_query(query_text, query_id=query_id)
+                results = web_search(search_query, query_id=query_id)
                 if results:
                     payload.web_search_results = results
                     routing_detail["web_search_used"] = True
+                    routing_detail["search_query"] = search_query
                 else:
                     routing_detail["web_search_used"] = False
+                    routing_detail["search_query"] = search_query
             except Exception:
                 routing_detail["web_search_used"] = False
         else:
@@ -496,6 +521,30 @@ class Pipeline:
             return self.guardian.generate(prompt, role="finalizer", query_id=query_id)
         except GuardianUnavailableError:
             return expert_response
+
+    def _extract_search_query(self, query_text: str, query_id: str | None = None) -> str:
+        """
+        Use Guardian to convert a natural-language question into a focused
+        English search query for Tavily.
+
+        Falls back to the original query text if Guardian is unavailable or
+        returns an unusable result, so the search still proceeds.
+        """
+        if not self.guardian.is_available():
+            return query_text
+
+        prompt = (
+            _SEARCH_QUERY_PREFIX
+            + f"Q: {query_text}\n"
+            + "A:"
+        )
+        try:
+            raw = self.guardian.generate(prompt, role="search-optimizer", query_id=query_id)
+            # Take only the first line and strip surrounding quotes/whitespace
+            optimized = raw.strip().splitlines()[0].strip().strip('"\'')
+            return optimized if optimized else query_text
+        except Exception:
+            return query_text
 
     def _get_expert(self):
         from app.expert.openai_client import OpenAIExpertClient
